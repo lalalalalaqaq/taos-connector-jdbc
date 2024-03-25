@@ -1,9 +1,11 @@
 package com.taosdata.jdbc;
 
 import com.alibaba.fastjson.JSONObject;
+import com.sun.tools.javac.Main;
 import com.taosdata.jdbc.enums.SchemalessProtocolType;
 import com.taosdata.jdbc.enums.SchemalessTimestampType;
 import com.taosdata.jdbc.utils.TaosInfo;
+import jdk.internal.loader.Resource;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
@@ -31,7 +33,20 @@ public class TSDBJNIConnector {
     private int affectedRows = -1;
 
     static {
-        System.loadLibrary("taos");
+        String osName = System.getProperty("os.name");
+        if (osName.contains("Windows")) {
+            // 没编译，手头上没有windows
+        } else if (!osName.contains("Mac") && !osName.contains("Darwin")) {
+            if (osName.contains("Linux")) {
+                // linux
+                String libraryPath = Main.class.getClassLoader().getResource("./native/libtaos.so").getPath();
+                System.load(libraryPath);
+            }
+        } else {
+            // mac
+            String libraryPath = Main.class.getClassLoader().getResource("./native/libtaos.dylib").getPath();
+            System.load(libraryPath);
+        }
     }
 
     /***********************************************************************/
