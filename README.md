@@ -21,19 +21,9 @@
 这样自己的项目不需要额外的代码，还能适配多种操作系统调用
 ```agsl
     static {
-        String osName = System.getProperty("os.name");
-        if (osName.contains("Windows")) {
-            // 没编译，手头上没有windows
-        } else if (!osName.contains("Mac") && !osName.contains("Darwin")) {
-            if (osName.contains("Linux")) {
-                // linux
-                String libraryPath = Main.class.getClassLoader().getResource("./native/libtaos.so").getPath();
-                System.load(libraryPath);
-            }
-        } else {
-            // mac
-            String libraryPath = Main.class.getClassLoader().getResource("./native/libtaos.dylib").getPath();
-            System.load(libraryPath);
-        }
+        String taos = System.getProperty("taos_path");
+        taos = Objects.nonNull(taos) ? taos : "taos";
+        System.load(taos);
     }
+
 ```

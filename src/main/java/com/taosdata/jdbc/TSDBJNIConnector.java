@@ -1,11 +1,9 @@
 package com.taosdata.jdbc;
 
 import com.alibaba.fastjson.JSONObject;
-import com.sun.tools.javac.Main;
 import com.taosdata.jdbc.enums.SchemalessProtocolType;
 import com.taosdata.jdbc.enums.SchemalessTimestampType;
 import com.taosdata.jdbc.utils.TaosInfo;
-import jdk.internal.loader.Resource;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
@@ -13,6 +11,7 @@ import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.TimeZone;
 import java.util.regex.Matcher;
@@ -27,27 +26,16 @@ public class TSDBJNIConnector {
     private static final Object LOCK = new Object();
     private static volatile boolean isInitialized;
 
+    static {
+        String taos = System.getProperty("taos_path");
+        taos = Objects.nonNull(taos) ? taos : "taos";
+        System.load(taos);
+    }
+
     private final TaosInfo taosInfo = TaosInfo.getInstance();
     protected long taos = TSDBConstants.JNI_NULL_POINTER;     // Connection pointer used in C
     private boolean isResultsetClosed;      // result set status in current connection
     private int affectedRows = -1;
-
-    static {
-        String osName = System.getProperty("os.name");
-        if (osName.contains("Windows")) {
-            // 没编译，手头上没有windows
-        } else if (!osName.contains("Mac") && !osName.contains("Darwin")) {
-            if (osName.contains("Linux")) {
-                // linux
-                String libraryPath = Main.class.getClassLoader().getResource("./native/libtaos.so").getPath();
-                System.load(libraryPath);
-            }
-        } else {
-            // mac
-            String libraryPath = Main.class.getClassLoader().getResource("./native/libtaos.dylib").getPath();
-            System.load(libraryPath);
-        }
-    }
 
     /***********************************************************************/
     //NOTE: JDBC
@@ -77,9 +65,9 @@ public class TSDBJNIConnector {
                     throw TSDBError.createSQLWarning("Failed to set timezone: " + timezone + ". System default will be used.");
                 }
 
-                try{
+                try {
                     handleTimeZone(timezone.trim());
-                } catch (Exception e){
+                } catch (Exception e) {
                 }
                 isInitialized = true;
                 TaosGlobalConfig.setCharset(getTsCharset());
@@ -88,11 +76,11 @@ public class TSDBJNIConnector {
     }
 
 
-    private static void handleTimeZone(String posixTimeZoneStr){
+    private static void handleTimeZone(String posixTimeZoneStr) {
         //争取向前兼容POSIX 接口规范，只处理能处理的情况
         // 1. UTC 和 GMT，只处理小时情况，加号变减号，减号变加号
-        if (posixTimeZoneStr.startsWith("UTC") || posixTimeZoneStr.startsWith("GMT")){
-            if (posixTimeZoneStr.length() == 3){
+        if (posixTimeZoneStr.startsWith("UTC") || posixTimeZoneStr.startsWith("GMT")) {
+            if (posixTimeZoneStr.length() == 3) {
                 //标准时间
                 TimeZone.setDefault(TimeZone.getTimeZone(ZoneId.of("GMT")));
                 return;
@@ -105,15 +93,15 @@ public class TSDBJNIConnector {
             if (matcher.matches()) {
                 String op = matcher.group(2);
                 String hourStr = matcher.group(3);
-                if (op.equals("+")){
+                if (op.equals("+")) {
                     op = "-";
-                }else{
+                } else {
                     op = "+";
                 }
 
                 //只处理java可以处理的情况
                 int hour = Integer.parseInt(hourStr);
-                if (hour > 18){
+                if (hour > 18) {
                     return;
                 }
 
@@ -125,10 +113,11 @@ public class TSDBJNIConnector {
         }
 
         // 2. 尝试处理Asia/Shanghai这种情况
-        if (posixTimeZoneStr.contains("/")){
+        if (posixTimeZoneStr.contains("/")) {
             TimeZone.setDefault(TimeZone.getTimeZone(ZoneId.of(posixTimeZoneStr)));
         }
     }
+
     private static native void initImp(String configDir);
 
     private static native int setOptions(int optionIndex, String optionValue);
@@ -167,10 +156,8 @@ public class TSDBJNIConnector {
     public long executeQuery(String sql, Long reqId) throws SQLException {
         long pSql = 0L;
         try {
-            if (null == reqId)
-                pSql = this.executeQueryImp(sql.getBytes(TaosGlobalConfig.getCharset()), this.taos);
-            else
-                pSql = this.executeQueryWithReqId(sql.getBytes(TaosGlobalConfig.getCharset()), this.taos, reqId);
+            if (null == reqId) pSql = this.executeQueryImp(sql.getBytes(TaosGlobalConfig.getCharset()), this.taos);
+            else pSql = this.executeQueryWithReqId(sql.getBytes(TaosGlobalConfig.getCharset()), this.taos, reqId);
             taosInfo.stmt_count_increment();
         } catch (UnsupportedEncodingException e) {
             this.freeResultSetImp(this.taos, pSql);
@@ -335,8 +322,7 @@ public class TSDBJNIConnector {
         if (null == reqId)
             // jni error code can not return to java
             stmt = prepareStmtImp(sql.getBytes(), this.taos);
-        else
-            stmt = prepareStmtWithReqId(sql.getBytes(), this.taos, reqId);
+        else stmt = prepareStmtWithReqId(sql.getBytes(), this.taos, reqId);
 
         if (stmt == TSDBConstants.JNI_CONNECTION_NULL) {
             throw TSDBError.createSQLException(TSDBErrorNumbers.ERROR_JNI_CONNECTION_NULL, "connection already closed");
@@ -465,8 +451,7 @@ public class TSDBJNIConnector {
     private native long schemalessInsertWithTtlAndReqId(long conn, String[] lines, int type, int precision, int ttl, long reqId);
 
     public int insertRaw(String line, SchemalessProtocolType protocolType, SchemalessTimestampType timestampType) throws SQLException {
-        if (null == line)
-            throw TSDBError.createSQLException(ERROR_INVALID_VARIABLE);
+        if (null == line) throw TSDBError.createSQLException(ERROR_INVALID_VARIABLE);
 
         SchemalessResp resp = schemalessInsertRaw(this.taos, line, protocolType.ordinal(), timestampType.ordinal());
         if (TSDBConstants.JNI_SUCCESS != resp.getCode())
@@ -477,8 +462,7 @@ public class TSDBJNIConnector {
     private native SchemalessResp schemalessInsertRaw(long conn, String line, int type, int precision);
 
     public int insertRawWithReqId(String line, SchemalessProtocolType protocolType, SchemalessTimestampType timestampType, long reqId) throws SQLException {
-        if (null == line)
-            throw TSDBError.createSQLException(ERROR_INVALID_VARIABLE);
+        if (null == line) throw TSDBError.createSQLException(ERROR_INVALID_VARIABLE);
 
         SchemalessResp resp = schemalessInsertRawWithReqId(this.taos, line, protocolType.ordinal(), timestampType.ordinal(), reqId);
         if (TSDBConstants.JNI_SUCCESS != resp.getCode())
@@ -490,8 +474,7 @@ public class TSDBJNIConnector {
 
 
     public int insertRawWithTtl(String line, SchemalessProtocolType protocolType, SchemalessTimestampType timestampType, int ttl) throws SQLException {
-        if (null == line)
-            throw TSDBError.createSQLException(ERROR_INVALID_VARIABLE);
+        if (null == line) throw TSDBError.createSQLException(ERROR_INVALID_VARIABLE);
 
         SchemalessResp resp = schemalessInsertRawWithTtl(this.taos, line, protocolType.ordinal(), timestampType.ordinal(), ttl);
         if (TSDBConstants.JNI_SUCCESS != resp.getCode())
@@ -502,8 +485,7 @@ public class TSDBJNIConnector {
     private native SchemalessResp schemalessInsertRawWithTtl(long conn, String line, int type, int precision, int ttl);
 
     public int insertRawWithTtlAndReqId(String line, SchemalessProtocolType protocolType, SchemalessTimestampType timestampType, int ttl, long reqId) throws SQLException {
-        if (null == line)
-            throw TSDBError.createSQLException(ERROR_INVALID_VARIABLE);
+        if (null == line) throw TSDBError.createSQLException(ERROR_INVALID_VARIABLE);
 
         SchemalessResp resp = schemalessInsertRawWithTtlAndReqId(this.taos, line, protocolType.ordinal(), timestampType.ordinal(), ttl, reqId);
         if (TSDBConstants.JNI_SUCCESS != resp.getCode())
